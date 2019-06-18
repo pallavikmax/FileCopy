@@ -1,25 +1,20 @@
 package com.hutchgroup.elog.filesharing;
 
 import android.Manifest;
-import android.app.Activity;
-import android.app.ProgressDialog;
-import android.content.Context;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
-import android.net.Uri;
-import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Environment;
-import android.os.PowerManager;
-import android.provider.Settings;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -28,11 +23,7 @@ import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.io.CopyStreamAdapter;
 
 import java.io.BufferedInputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -41,8 +32,7 @@ import java.net.Authenticator;
 import java.net.HttpURLConnection;
 import java.net.PasswordAuthentication;
 import java.net.URL;
-import java.net.URLConnection;
-import java.util.Date;
+import java.util.ArrayList;
 
 import jcifs.smb.SmbException;
 import jcifs.smb.SmbFile;
@@ -57,6 +47,11 @@ public class MainActivity extends AppCompatActivity {
     ProgressBar progressBarCurrent, progressBar;
     TextView tvCurrentFileName, tvcurrentPercentage, tvCurrentProgress, tvTotalPercentage, tvTotalFiles, tvTotalSize, tvTimeElapsed;
     LinearLayout layoutProgress;
+    private ListView listView;
+    private ArrayAdapter<String> adapter;
+    ArrayList<String> downloadedFiles = new ArrayList<>();
+
+    private EditText searchEditText;
 
     private void initialize() {
 
@@ -73,6 +68,7 @@ public class MainActivity extends AppCompatActivity {
         tvTotalSize = (TextView) findViewById(R.id.tvTotalSize);
         tvTimeElapsed = (TextView) findViewById(R.id.tvTimeElapsed);
 
+
         btnCopy = (Button) findViewById(R.id.btnCopy);
         btnCopy.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -85,11 +81,8 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, "Please connect to wifi to proceed!", Toast.LENGTH_LONG).show();
                     return;
                 }
-
-                new FTPDownload().execute();
-                //new CopyData().execute();
-                //  final DownloadTask downloadTask = new DownloadTask();
-                // downloadTask.execute("http://192.168.1.1/USB_Storage/SygicNew.zip");
+                //download files
+                new DownloadTask().execute();
             }
         });
 
@@ -97,9 +90,25 @@ public class MainActivity extends AppCompatActivity {
         btnConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivityForResult(new Intent(Settings.ACTION_WIFI_SETTINGS), 0);
+                //    startActivityForResult(new Intent(Settings.ACTION_WIFI_SETTINGS), 0);
+                finish();
+
             }
         });
+
+        listView = (ListView) findViewById(R.id.lvFile);
+
+        adapter = new ArrayAdapter<String>(MainActivity.this,
+                android.R.layout.simple_list_item_1, android.R.id.text1, downloadedFiles);
+        listView.setAdapter(adapter);
+        adapter.notifyDataSetChanged();
+
+
+    }
+
+    @Override
+    public void onBackPressed() {
+
     }
 
     Thread thTimer = null;
@@ -168,7 +177,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public boolean hasPermissions(String... permissions) {
-        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && getApplicationContext() != null && permissions != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && getApplicationContext() != null && permissions != null) {
             for (String permission : permissions) {
                 if (ActivityCompat.checkSelfPermission(getApplicationContext(), permission) != PackageManager.PERMISSION_GRANTED) {
                     return false;
@@ -181,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
 
     public void checkAndGrantPermissions() {
 
-        String[] PERMISSIONS = {Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.INTERNET, android.Manifest.permission.WRITE_EXTERNAL_STORAGE, android.Manifest.permission.READ_EXTERNAL_STORAGE
+        String[] PERMISSIONS = {Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.INTERNET, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE
                 , Manifest.permission.ACCESS_NETWORK_STATE
         };
         if (!hasPermissions(PERMISSIONS)) {
@@ -581,9 +590,14 @@ public class MainActivity extends AppCompatActivity {
 // that way, you can easily modify the UI thread from here
     private class DownloadTask extends AsyncTask<String, Integer, String> {
 
-        double size = 0, copySize = 0, currentFileSize = 0d;
+        double size = 0, copySize = 0, currentFileSize = 0d, totalsize = 0;
+        int count = 0, copyCount = 0;
+        ArrayList<String> currentdownloadedFile = new ArrayList<>();
+
+        ArrayList<FileBean> fileList = new ArrayList<>();
 
         public DownloadTask() {
+
         }
 
         @Override
@@ -591,97 +605,174 @@ public class MainActivity extends AppCompatActivity {
             super.onPreExecute();
             layoutProgress.setVisibility(View.VISIBLE);
             progressBar.setProgress(0);
-            updateTime();
+            //   updateTime();
         }
 
         @Override
         protected void onProgressUpdate(Integer... progress) {
             super.onProgressUpdate(progress);
+
             // if we get here, length is known, now set indeterminate to false
             progressBarCurrent.setIndeterminate(false);
-
             progressBarCurrent.setProgress(progress[0]);
             progressBarCurrent.setMax(100);
+
+
             tvcurrentPercentage.setText(progressBarCurrent.getProgress() + "%");
             String currentSize = String.format("%s of %s", formatSize(copySize), formatSize(currentFileSize));
             tvCurrentProgress.setText(currentSize);
+
+
+            int totalprogress = (int) (totalsize * 100 / size);
+            progressBar.setProgress(totalprogress);
+            String totalFiles = String.format("%s of %s Files", copyCount, count);
+            tvTotalFiles.setText(totalFiles);
+            String totalSize = String.format("%s of %s", formatSize(totalsize), formatSize(size));
+            tvTotalSize.setText(totalSize);
+            tvTotalPercentage.setText(progressBar.getProgress() + "%");
+
+
         }
 
         @Override
         protected void onPostExecute(String result) {
 
 
-            if (result != null)
+            if (result != null) {
                 Toast.makeText(getApplicationContext(), "Download error: " + result, Toast.LENGTH_LONG).show();
-            else
+            } else {
                 Toast.makeText(getApplicationContext(), "File downloaded", Toast.LENGTH_SHORT).show();
+                downloadedFiles.clear();
+
+                downloadedFiles.addAll(currentdownloadedFile);
+                adapter.notifyDataSetChanged();
+            }
+
+
         }
 
         @Override
         protected String doInBackground(String... sUrl) {
-            InputStream input = null;
-            OutputStream output = null;
-            HttpURLConnection connection = null;
-            try {
-                URL url = new URL(sUrl[0]);
 
-                Authenticator.setDefault(new Authenticator() {
-                    protected PasswordAuthentication getPasswordAuthentication() {
-                        return new PasswordAuthentication("Admin", "#72Hutch5".toCharArray());
-                    }
-                });
-                connection = (HttpURLConnection) url.openConnection();
-                connection.connect();
 
-                // expect HTTP 200 OK, so we don't mistakenly save error report
-                // instead of the file
-                if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                    return "Server returned HTTP " + connection.getResponseCode()
-                            + " " + connection.getResponseMessage();
-                }
+            //get Files from web
+            WebService.getFileFromWeb(MainActivity.this);
 
-                // this will be useful to display download percentage
-                // might be -1: server did not report the length
-                int fileLength = connection.getContentLength();
-                currentFileSize = fileLength;
-                // download the file
-                input = connection.getInputStream();
-                String path = Environment.getExternalStorageDirectory() + "//Navigationhttp.exe";
-               /* File file = new File(path);
-                if (!file.exists()) {
-                    file.createNewFile();
-                }*/
-                output = new FileOutputStream(path);
+            // get files from database
+            fileList = FileDB.getFileFromServer(MainActivity.this);
 
-                byte data[] = new byte[4096];
-                long total = 0;
-                int count;
-                while ((count = input.read(data)) != -1) {
-                    // allow canceling with back button
-                    if (isCancelled()) {
-                        input.close();
-                        return null;
-                    }
-                    total += count;
-                    copySize = total;
-                    // publishing the progress....
-                    if (fileLength > 0) // only if total length is known
-                        publishProgress((int) (total * 100 / fileLength));
-                    output.write(data, 0, count);
-                }
-            } catch (Exception e) {
-                return e.toString();
-            } finally {
+            count = fileList.size();
+
+            if (fileList.size() == 0) {
+                return "No Files for Update";
+            }
+
+            for (int i = 0; i < fileList.size(); i++) {
+                size += fileList.get(i).getFileContentLength();
+
+            }
+
+            // Download file one by one
+            for (FileBean filedownload : fileList) {
+
+                InputStream input = null;
+                OutputStream output = null;
+                HttpURLConnection connection = null;
                 try {
-                    if (output != null)
-                        output.close();
-                    if (input != null)
-                        input.close();
-                } catch (IOException ignored) {
-                }
 
-                if (connection != null)
-                    connection.disconnect();
+                    URL url = new URL(filedownload.getPath());
+
+                    String path = Environment.getExternalStorageDirectory() + "/kmax/";
+                    File file = new File(path);
+                    file.mkdirs();
+
+                    final String fileName = filedownload.getFileName() + filedownload.getFileExtension();
+
+                    Authenticator.setDefault(new Authenticator() {
+                        protected PasswordAuthentication getPasswordAuthentication() {
+                            return new PasswordAuthentication("Admin", "#72Hutch5".toCharArray());
+                        }
+                    });
+                    connection = (HttpURLConnection) url.openConnection();
+                    connection.connect();
+
+
+                    // If Prevoius exists delete  file
+                    File outputFile = new File(file, fileName);
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+
+                    // expect HTTP 200 OK, so we don't mistakenly save error report
+                    // instead of the file
+                    if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                        return "Server returned HTTP " + connection.getResponseCode()
+                                + " " + connection.getResponseMessage();
+                    }
+
+                    // this will be useful to display download percentage
+                    // might be -1: server did not report the length
+                    int fileLength = filedownload.getFileContentLength();
+                    currentFileSize = fileLength;
+
+                    copyCount++;
+                    // download the file
+                    input = connection.getInputStream();
+
+
+                    output = new FileOutputStream(path + fileName);
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            progressBarCurrent.setProgress(0);
+                            tvCurrentFileName.setText("Current File: " + fileName);
+                        }
+                    });
+
+
+                    byte data[] = new byte[4096];
+                    long total = 0;
+                    int count;
+                    while ((count = input.read(data)) != -1) {
+                        // allow canceling with back button
+                        if (isCancelled()) {
+                            input.close();
+                            return null;
+                        }
+                        total += count;
+                        copySize = total;
+
+                        // publishing the progress....
+                        if (fileLength > 0) // only if total length is known
+                            publishProgress((int) (total * 100 / fileLength));
+
+                        output.write(data, 0, count);
+                    }
+
+                    totalsize += currentFileSize;
+
+                    currentdownloadedFile.add(filedownload.getFileName());
+
+                    WebService.PostDownloadedfie(filedownload.getId(), MainActivity.this);
+
+                    FileDB.updateDownloadedFile(MainActivity.this, filedownload.getId());
+
+
+                } catch (Exception e) {
+                    return e.toString();
+                } finally {
+                    try {
+                        if (output != null)
+                            output.close();
+                        if (input != null)
+                            input.close();
+                    } catch (IOException ignored) {
+                    }
+
+                    if (connection != null)
+                        connection.disconnect();
+                }
             }
             return null;
         }
